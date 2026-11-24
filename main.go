@@ -11,7 +11,11 @@ import (
 	"time"
 )
 
+// Version follows Semantic Versioning.
+const Version = "0.2.0"
+
 type Report struct {
+	Version     string     `json:"version"`
 	GeneratedAt string     `json:"generated_at"`
 	Root        string     `json:"root"`
 	MinSize     int64      `json:"min_size_bytes"`
@@ -29,6 +33,7 @@ type FileOut struct {
 	LastUsed string `json:"last_used"`
 	Modified string `json:"modified"`
 	Category string `json:"category"`
+	Risk     string `json:"risk"`
 	System   bool   `json:"system_path"`
 }
 
@@ -38,13 +43,28 @@ type OrphanInfo struct {
 }
 
 func main() {
+	versionFlag := flag.Bool("version", false, "print version and exit")
+	openPath := flag.String("open", "", "open a path in the default file manager and exit")
 	root := flag.String("path", "/", "root path to scan")
 	days := flag.Int("days", 90, "consider files unused if last used older than N days")
 	minSizeMB := flag.Float64("min-size-mb", 1, "minimum file size in MB")
 	topN := flag.Int("top", 200, "max number of files to list (0 = all)")
 	jsonOut := flag.String("json", "", "write JSON report to file")
 	skipOrphans := flag.Bool("skip-orphans", false, "skip dnf/flatpak orphan checks")
+	riskFilter := flag.String("risk", "all", "filter by risk level: all|safe|caution|risky")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println("deepclean", Version)
+		return
+	}
+	if *openPath != "" {
+		if err := openInFileManager(*openPath); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "open error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	minSize := int64(*minSizeMB * 1e6)
 	olderThan := time.Duration(*days) * 24 * time.Hour
@@ -53,8 +73,22 @@ func main() {
 
 	res, err := scan(*root, minSize, olderThan, *topN)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "scan error:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "scan error:", err)
 		os.Exit(1)
+	}
+
+	// optional risk filter
+	if *riskFilter != "" && *riskFilter != "all" {
+		filtered := res.Files[:0]
+		var total int64
+		for _, f := range res.Files {
+			if f.Risk == *riskFilter {
+				filtered = append(filtered, f)
+				total += f.Size
+			}
+		}
+		res.Files = filtered
+		res.TotalSize = total
 	}
 
 	// category totals
@@ -75,7 +109,7 @@ func main() {
 	}
 
 	fmt.Printf("\nTop %d by size:\n", len(res.Files))
-	fmt.Printf("%-12s %-10s %-20s %s\n", "SIZE", "CATEGORY", "LAST USED", "PATH")
+	fmt.Printf("%-12s %-10s %-8s %-20s %s\n", "SIZE", "CATEGORY", "RISK", "LAST USED", "PATH")
 	for _, f := range res.Files {
 		lastUsed := f.Atime
 		if f.Atime.IsZero() {
@@ -85,8 +119,8 @@ func main() {
 		if isSystemPath(f.Path) {
 			sysMark = " [SYS]"
 		}
-		fmt.Printf("%-12s %-10s %-20s %s%s\n",
-			FormatSize(f.Size), f.Category, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+		fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
+			FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
 	}
 
 	if !*skipOrphans {
@@ -104,6 +138,7 @@ func main() {
 
 	if *jsonOut != "" {
 		out := Report{
+			Version:     Version,
 			GeneratedAt: time.Now().Format(time.RFC3339),
 			Root:        *root,
 			MinSize:     minSize,
@@ -124,12 +159,13 @@ func main() {
 				LastUsed: lastUsed.Format(time.RFC3339),
 				Modified: f.ModTime.Format(time.RFC3339),
 				Category: f.Category,
+				Risk:     f.Risk,
 				System:   isSystemPath(f.Path),
 			})
 		}
 		b, _ := json.MarshalIndent(out, "", "  ")
 		if err := os.WriteFile(*jsonOut, b, 0644); err != nil {
-			fmt.Fprintln(os.Stderr, "json write error:", err)
+			_, _ = fmt.Fprintln(os.Stderr, "json write error:", err)
 		} else {
 			fmt.Printf("\nJSON report written to %s\n", *jsonOut)
 		}
@@ -148,7 +184,7 @@ func collectOrphans() OrphanInfo {
 		o.DNF = strings.TrimSpace(string(out))
 	}
 	if _, err := exec.LookPath("flatpak"); err == nil {
-		// flatpak has no dry-run; never auto-uninstall. List installed refs instead.
+		// Flatpak has no dry-run; never auto-uninstall. List installed refs instead.
 		cmd := exec.Command("flatpak", "list", "--columns=application,branch,origin")
 		out, _ := cmd.CombinedOutput()
 		o.Flatpak = "Installed refs (run `flatpak uninstall --unused` manually to remove unused):\n" + strings.TrimSpace(string(out))
@@ -161,4 +197,20 @@ func collectOrphansNoExec(skip bool) OrphanInfo {
 		return OrphanInfo{}
 	}
 	return collectOrphans()
+}
+
+// openInFileManager opens a path using the desktop default handler.
+func openInFileManager(p string) error {
+	for _, cmd := range []string{"xdg-open", "gio"} {
+		if _, err := exec.LookPath(cmd); err == nil {
+			var c *exec.Cmd
+			if cmd == "gio" {
+				c = exec.Command("gio", "open", p)
+			} else {
+				c = exec.Command(cmd, p)
+			}
+			return c.Start()
+		}
+	}
+	return fmt.Errorf("no file manager opener found (xdg-open/gio)")
 }

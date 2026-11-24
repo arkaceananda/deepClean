@@ -16,6 +16,7 @@ type FileInfo struct {
 	ModTime  time.Time
 	Atime    time.Time
 	Category string
+	Risk     string
 }
 
 type ScanResult struct {
@@ -50,6 +51,25 @@ func categorize(p string) string {
 		return "temp"
 	default:
 		return "other"
+	}
+}
+
+// riskLevel gives a coarse risk hint for deletion review.
+func riskLevel(p string) string {
+	if isSystemPath(p) {
+		return "risky"
+	}
+	l := strings.ToLower(p)
+	switch {
+	case strings.Contains(l, "/cache/"), strings.Contains(l, "/.cache/"),
+		strings.HasPrefix(l, "/tmp/"), strings.HasPrefix(l, "/var/tmp/"),
+		strings.HasSuffix(l, ".log"), strings.Contains(l, "/log/"), strings.Contains(l, "/logs/"):
+		return "safe"
+	case strings.Contains(l, "/build/"), strings.Contains(l, "/target/"),
+		strings.Contains(l, "node_modules/"), strings.Contains(l, "/.gradle/"):
+		return "caution"
+	default:
+		return "caution"
 	}
 }
 
@@ -100,6 +120,7 @@ func scan(root string, minSize int64, olderThan time.Duration, maxFiles int) (Sc
 			ModTime:  info.ModTime(),
 			Atime:    atime,
 			Category: categorize(path),
+			Risk:     riskLevel(path),
 		})
 		res.TotalSize += info.Size()
 		return nil

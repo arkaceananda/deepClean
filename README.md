@@ -2,13 +2,15 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development. Report-only by default — no files are deleted automatically.
+> Status: early development (v0.2.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
 - Recursive filesystem scan with configurable age and size thresholds.
 - "Last used" derived from `max(atime, mtime)` to stay reliable on `relatime` mounts.
 - Decimal size output in MB/GB (1 MB = 1,000,000 bytes), never MiB/KiB.
+- Coarse risk rating per file: `safe`, `caution`, `risky` (system paths are `risky`).
+- Open any path in the default file manager via `--open`.
 - Categorization: `cache`, `log`, `temp`, `other`, with per-category totals.
 - System paths (`/usr`, `/etc`, `/boot`, `/lib`, …) are flagged `[SYS]` and never auto-deleted.
 - Package orphan inspection:
@@ -39,6 +41,12 @@ go build -o deepclean .
 
 # Scan home directory, skip package checks
 ./deepclean --path /home --days 30 --min-size-mb 10 --skip-orphans
+
+# Open a path in the default file manager
+./deepclean --open /home/arkaaceananda/Downloads
+
+# Only show safe (regenerable) files
+./deepclean --path / --days 90 --min-size-mb 100 --risk safe
 ```
 
 ## Flags
@@ -51,6 +59,17 @@ go build -o deepclean .
 | `--top` | `200` | Maximum number of files to list (`0` = all) |
 | `--json` | `` | Write a JSON report to the given file |
 | `--skip-orphans` | `false` | Skip dnf/flatpak orphan checks |
+| `--version` | `false` | Print version and exit |
+| `--open` | `` | Open a path in the default file manager and exit |
+| `--risk` | `all` | Filter by risk level: `all`, `safe`, `caution`, `risky` |
+
+## Risk levels
+
+| Level | Meaning | Examples |
+|---|---|---|
+| `risky` | System/protected paths; never auto-delete | `/usr`, `/etc`, `/boot`, `/lib`, `/bin`, `/sbin`, `/opt` |
+| `caution` | Potentially useful but stale; review before deleting | build artifacts, `node_modules`, unknown files |
+| `safe` | Regenerable cache/temp/log data | `/tmp`, `/var/tmp`, `*cache*`, `*.log` |
 
 ## Safety
 

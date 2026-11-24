@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.5.1). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.6.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -60,11 +60,7 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 # Quiet mode for cron/automation
 ./deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json ~/deepclean-reports/scan.json
 
-# Configure default email once
-./deepclean --set-email you@example.com
 
-# Later runs send automatically (no --email needed)
-./deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json ~/deepclean-reports/scan.json
 ```
 
 ## Flags
@@ -84,8 +80,7 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 | `--trash` | `false` | Move files to Trash instead of permanent delete |
 | `--force` | `false` | Allow deleting `risky`/system files (use with care) |
 | `--quiet` | `false` | Quiet output (for cron/automation) |
-| `--set-email` | `` | Save default email to config and exit |
-| `--email` | `` | Override recipient for this run |
+| `--exit-code` | `false` | Exit with status 1 if candidates found (cron alerts) |
 
 ## Risk levels
 
@@ -115,7 +110,7 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 Example weekly cron (report only, quiet):
 
 ```bash
-0 3 * * 0 /path/to/deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json /home/$USER/deepclean-reports/scan-$(date +\%F).json
+0 3 * * 0 /path/to/deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --exit-code --json /home/$USER/deepclean-reports/scan-latest.json
 ```
 
 ## Notes

@@ -16,7 +16,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.5.1"
+const Version = "0.6.0"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -60,30 +60,14 @@ func main() {
 	trashFlag := flag.Bool("trash", false, "move files to Trash instead of permanent delete")
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
 	quietFlag := flag.Bool("quiet", false, "quiet output (for cron/automation)")
-	emailTo := flag.String("email", "", "override: send a summary report to this email address")
-	setEmail := flag.String("set-email", "", "save default email to config and exit")
+	exitCodeFlag := flag.Bool("exit-code", false, "exit with status 1 if candidates found (for cron alerts)")
 	flag.Parse()
-
-	if *setEmail != "" {
-		if err := saveConfigEmail(*setEmail); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Saved default email: %s\n", *setEmail)
-		return
-	}
 
 	if *versionFlag {
 		fmt.Println("deepclean", Version)
 		return
 	}
 
-	// resolve email: flag override or saved config
-	if *emailTo == "" {
-		if cfg, err := loadConfig(); err == nil && cfg.Email != "" {
-			*emailTo = cfg.Email
-		}
-	}
 	if *openPath != "" {
 		if err := openInFileManager(*openPath); err != nil {
 			_, _ = fmt.Fprintln(os.Stderr, "open error:", err)
@@ -95,7 +79,9 @@ func main() {
 	minSize := int64(*minSizeMB * 1e6)
 	olderThan := time.Duration(*days) * 24 * time.Hour
 
-	fmt.Printf("deepclean: scanning %s (unused > %d days, min size %.2f MB)\n", *root, *days, *minSizeMB)
+	if !*quietFlag {
+		fmt.Printf("deepclean: scanning %s (unused > %d days, min size %.2f MB)\n", *root, *days, *minSizeMB)
+	}
 
 	res, err := core.Scan(*root, minSize, olderThan, *topN)
 	if err != nil {
@@ -123,15 +109,17 @@ func main() {
 		catTotals[f.Category] += f.Size
 	}
 
-	fmt.Printf("\nFound %d files, total %s\n", len(res.Files), core.FormatSize(res.TotalSize))
-	fmt.Println("By category:")
-	cats := make([]string, 0, len(catTotals))
-	for c := range catTotals {
-		cats = append(cats, c)
-	}
-	sort.Strings(cats)
-	for _, c := range cats {
-		fmt.Printf("  %-8s %s\n", c, core.FormatSize(catTotals[c]))
+	if !*quietFlag {
+		fmt.Printf("\nFound %d files, total %s\n", len(res.Files), core.FormatSize(res.TotalSize))
+		fmt.Println("By category:")
+		cats := make([]string, 0, len(catTotals))
+		for c := range catTotals {
+			cats = append(cats, c)
+		}
+		sort.Strings(cats)
+		for _, c := range cats {
+			fmt.Printf("  %-8s %s\n", c, core.FormatSize(catTotals[c]))
+		}
 	}
 
 	if !*quietFlag {
@@ -150,14 +138,6 @@ func main() {
 		if !*quietFlag {
 			fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
 				core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
-		}
-	}
-
-	if *emailTo != "" {
-		if err := sendEmailSummary(*emailTo, res.Files, res.TotalSize); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "email error: %v\n", err)
-		} else if !*quietFlag {
-			fmt.Printf("Summary emailed to %s\n", *emailTo)
 		}
 	}
 
@@ -249,6 +229,10 @@ func main() {
 		}
 	}
 
+	if *exitCodeFlag && len(res.Files) > 0 {
+		os.Exit(1)
+	}
+
 	if len(res.Errors) > 0 {
 		fmt.Printf("\n(%d permission/access errors skipped)\n", len(res.Errors))
 	}
@@ -328,92 +312,6 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
-}
-
-func sendEmailSummary(to string, files []core.FileInfo, total int64) error {
-	var helper string
-	var args []string
-	for _, c := range []struct {
-		name string
-		args []string
-	}{
-		{"mail", []string{"-s", "deepclean report"}},
-		{"mailx", []string{"-s", "deepclean report"}},
-		{"sendmail", []string{}},
-	} {
-		if p, err := exec.LookPath(c.name); err == nil {
-			helper = p
-			args = c.args
-			break
-		}
-	}
-	if helper == "" {
-		return fmt.Errorf("no mail helper found (mail/mailx/sendmail)")
-	}
-	// build body
-	var b strings.Builder
-	fmt.Fprintf(&b, "deepclean summary: %d files, %s total\n\n", len(files), core.FormatSize(total))
-	for i, f := range files {
-		if i >= 20 {
-			fmt.Fprintf(&b, "... (%d more)\n", len(files)-i)
-			break
-		}
-		last := f.Atime
-		if last.IsZero() {
-			last = f.ModTime
-		}
-		fmt.Fprintf(&b, "%s  %s  %s  %s\n", core.FormatSize(f.Size), f.Risk, last.Format("2006-01-02"), f.Path)
-	}
-	cmd := exec.Command(helper, append(args, to)...)
-	cmd.Stdin = strings.NewReader(b.String())
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-type appConfig struct {
-	Email string `json:"email"`
-}
-
-func configPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "deepclean", "config.json"), nil
-}
-
-func loadConfig() (appConfig, error) {
-	var cfg appConfig
-	p, err := configPath()
-	if err != nil {
-		return cfg, err
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return cfg, err
-	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		return cfg, err
-	}
-	return cfg, nil
-}
-
-func saveConfigEmail(email string) error {
-	p, err := configPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-		return err
-	}
-	cfg := appConfig{Email: email}
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p, b, 0600)
 }
 
 func collectOrphansNoExec(skip bool) OrphanInfo {

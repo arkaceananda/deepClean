@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.4.0). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.5.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -59,6 +59,9 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 
 # Quiet mode for cron/automation
 ./deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json ~/deepclean-reports/scan.json
+
+# Email a summary of large old files
+./deepclean --path / --days 90 --min-size-mb 100 --risk safe --email you@example.com
 ```
 
 ## Flags
@@ -78,6 +81,7 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 | `--trash` | `false` | Move files to Trash instead of permanent delete |
 | `--force` | `false` | Allow deleting `risky`/system files (use with care) |
 | `--quiet` | `false` | Quiet output (for cron/automation) |
+| `--email` | `` | Send a summary report to this email (requires mail/mailx/sendmail) |
 
 ## Risk levels
 

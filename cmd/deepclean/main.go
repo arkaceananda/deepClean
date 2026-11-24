@@ -16,7 +16,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.4.0"
+const Version = "0.5.0"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -60,6 +60,7 @@ func main() {
 	trashFlag := flag.Bool("trash", false, "move files to Trash instead of permanent delete")
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
 	quietFlag := flag.Bool("quiet", false, "quiet output (for cron/automation)")
+	emailTo := flag.String("email", "", "send a summary report to this email address (requires mail/mailx/sendmail)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -132,6 +133,14 @@ func main() {
 		if !*quietFlag {
 			fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
 				core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+		}
+	}
+
+	if *emailTo != "" {
+		if err := sendEmailSummary(*emailTo, res.Files, res.TotalSize); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "email error: %v\n", err)
+		} else if !*quietFlag {
+			fmt.Printf("Summary emailed to %s\n", *emailTo)
 		}
 	}
 
@@ -302,6 +311,48 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func sendEmailSummary(to string, files []core.FileInfo, total int64) error {
+	var helper string
+	var args []string
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"mail", []string{"-s", "deepclean report"}},
+		{"mailx", []string{"-s", "deepclean report"}},
+		{"sendmail", []string{}},
+	} {
+		if p, err := exec.LookPath(c.name); err == nil {
+			helper = p
+			args = c.args
+			break
+		}
+	}
+	if helper == "" {
+		return fmt.Errorf("no mail helper found (mail/mailx/sendmail)")
+	}
+	// build body
+	var b strings.Builder
+	fmt.Fprintf(&b, "deepclean summary: %d files, %s total\n\n", len(files), core.FormatSize(total))
+	for i, f := range files {
+		if i >= 20 {
+			fmt.Fprintf(&b, "... (%d more)\n", len(files)-i)
+			break
+		}
+		last := f.Atime
+		if last.IsZero() {
+			last = f.ModTime
+		}
+		fmt.Fprintf(&b, "%s  %s  %s  %s\n", core.FormatSize(f.Size), f.Risk, last.Format("2006-01-02"), f.Path)
+	}
+	cmd := exec.Command(helper, append(args, to)...)
+	cmd.Stdin = strings.NewReader(b.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func collectOrphansNoExec(skip bool) OrphanInfo {

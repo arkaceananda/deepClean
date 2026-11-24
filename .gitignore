@@ -1,0 +1,17 @@
+# Binaries
+deepclean
+*.exe
+
+# Reports
+*.json
+report.json
+
+# Go
+vendor/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store

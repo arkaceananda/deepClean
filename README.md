@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.3.1). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.4.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -53,6 +53,12 @@ go build -o deepclean ./cmd/deepclean
 
 # Delete system cache (requires sudo)
 sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk safe --delete
+
+# Move to Trash instead of permanent delete
+./deepclean --path /home --days 60 --min-size-mb 50 --risk safe --trash --delete
+
+# Quiet mode for cron/automation
+./deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json ~/deepclean-reports/scan.json
 ```
 
 ## Flags
@@ -69,7 +75,9 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 | `--open` | `` | Open a path in the default file manager and exit |
 | `--risk` | `all` | Filter by risk level: `all`, `safe`, `caution`, `risky` |
 | `--delete` | `false` | Interactively delete listed files (with confirmation) |
+| `--trash` | `false` | Move files to Trash instead of permanent delete |
 | `--force` | `false` | Allow deleting `risky`/system files (use with care) |
+| `--quiet` | `false` | Quiet output (for cron/automation) |
 
 ## Risk levels
 
@@ -94,9 +102,18 @@ sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk sa
 - Windows support via build tags (currently Linux-only).
 - Optional interactive deletion with confirmation.
 
+## Automation
+
+Example weekly cron (report only, quiet):
+
+```bash
+0 3 * * 0 /path/to/deepclean --path / --days 90 --min-size-mb 100 --risk safe --quiet --json /home/$USER/deepclean-reports/scan-$(date +\%F).json
+```
+
 ## Notes
 
 - Full `/` scan takes roughly 15–30 seconds.
 - Deleting or scanning system paths (e.g. `/var/cache`) requires `sudo`.
 - On non-Fedora distributions, filesystem scanning still works; package orphan checks are skipped when `dnf`/`flatpak` are unavailable.
 - Flatpak has no dry-run mode, so only installed refs are listed; run `flatpak uninstall --unused` manually after review.
+- Trash mode requires `gio` or `trash-put`.

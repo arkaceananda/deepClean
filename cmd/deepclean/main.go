@@ -6,15 +6,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.3.1"
+const Version = "0.4.0"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -55,7 +57,9 @@ func main() {
 	skipOrphans := flag.Bool("skip-orphans", false, "skip dnf/flatpak orphan checks")
 	riskFilter := flag.String("risk", "all", "filter by risk level: all|safe|caution|risky")
 	deleteFlag := flag.Bool("delete", false, "interactively delete listed files (with confirmation)")
+	trashFlag := flag.Bool("trash", false, "move files to Trash instead of permanent delete")
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
+	quietFlag := flag.Bool("quiet", false, "quiet output (for cron/automation)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -112,8 +116,10 @@ func main() {
 		fmt.Printf("  %-8s %s\n", c, core.FormatSize(catTotals[c]))
 	}
 
-	fmt.Printf("\nTop %d by size:\n", len(res.Files))
-	fmt.Printf("%-12s %-10s %-8s %-20s %s\n", "SIZE", "CATEGORY", "RISK", "LAST USED", "PATH")
+	if !*quietFlag {
+		fmt.Printf("\nTop %d by size:\n", len(res.Files))
+		fmt.Printf("%-12s %-10s %-8s %-20s %s\n", "SIZE", "CATEGORY", "RISK", "LAST USED", "PATH")
+	}
 	for _, f := range res.Files {
 		lastUsed := f.Atime
 		if f.Atime.IsZero() {
@@ -123,8 +129,10 @@ func main() {
 		if core.IsSystemPath(f.Path) {
 			sysMark = " [SYS]"
 		}
-		fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
-			core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+		if !*quietFlag {
+			fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
+				core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+		}
 	}
 
 	if *deleteFlag {
@@ -146,7 +154,13 @@ func main() {
 			if ans != "y" && ans != "yes" {
 				continue
 			}
-			if err := os.Remove(f.Path); err != nil {
+			var err error
+			if *trashFlag {
+				err = trashFile(f.Path)
+			} else {
+				err = os.Remove(f.Path)
+			}
+			if err != nil {
 				if os.IsPermission(err) {
 					_, _ = fmt.Fprintf(os.Stderr, "delete error: %v (try running with sudo)\n", err)
 				} else {
@@ -161,7 +175,7 @@ func main() {
 		fmt.Printf("\nDeleted %d files, freed %s\n", deleted, core.FormatSize(freed))
 	}
 
-	if !*skipOrphans {
+	if !*skipOrphans && !*quietFlag {
 		fmt.Println("\n--- Package orphans (report only) ---")
 		orphans := collectOrphans()
 		if orphans.DNF != "" {
@@ -228,6 +242,66 @@ func collectOrphans() OrphanInfo {
 		o.Flatpak = "Installed refs (run `flatpak uninstall --unused` manually to remove unused):\n" + strings.TrimSpace(string(out))
 	}
 	return o
+}
+
+// trashFile moves a path to the user's Trash using available helpers.
+func trashFile(p string) error {
+	for _, cand := range [][]string{{"gio", "trash", p}, {"trash-put", p}} {
+		if _, err := exec.LookPath(cand[0]); err == nil {
+			cmd := exec.Command(cand[0], cand[1:]...)
+			if err := cmd.Run(); err == nil {
+				return nil
+			}
+		}
+	}
+	return manualTrash(p)
+}
+
+func manualTrash(p string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	trashFiles := filepath.Join(home, ".local", "share", "Trash", "files")
+	trashInfo := filepath.Join(home, ".local", "share", "Trash", "info")
+	if err := os.MkdirAll(trashFiles, 0700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(trashInfo, 0700); err != nil {
+		return err
+	}
+	base := filepath.Base(p)
+	dest := filepath.Join(trashFiles, base)
+	if _, err := os.Stat(dest); err == nil {
+		dest = filepath.Join(trashFiles, fmt.Sprintf("%s.%d", base, time.Now().UnixNano()))
+	}
+	if err := os.Rename(p, dest); err != nil {
+		// cross-filesystem fallback
+		if err := copyFile(p, dest); err != nil {
+			return err
+		}
+		_ = os.Remove(p)
+	}
+	infoPath := filepath.Join(trashInfo, filepath.Base(dest)+".trashinfo")
+	content := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", p, time.Now().Format("2006-01-02T15:04:05"))
+	return os.WriteFile(infoPath, []byte(content), 0644)
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func collectOrphansNoExec(skip bool) OrphanInfo {

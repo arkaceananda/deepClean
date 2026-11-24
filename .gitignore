@@ -1,5 +1,5 @@
 # Binaries
-deepclean
+/deepclean
 *.exe
 
 # Reports

@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -31,7 +32,7 @@ var skipDirs = map[string]bool{
 	"/snap": true, "/lost+found": true,
 }
 
-func isSystemPath(p string) bool {
+func IsSystemPath(p string) bool {
 	for _, root := range []string{"/usr", "/etc", "/boot", "/lib", "/lib64", "/bin", "/sbin", "/opt"} {
 		if p == root || strings.HasPrefix(p, root+"/") {
 			return true
@@ -56,7 +57,7 @@ func categorize(p string) string {
 
 // riskLevel gives a coarse risk hint for deletion review.
 func riskLevel(p string) string {
-	if isSystemPath(p) {
+	if IsSystemPath(p) {
 		return "risky"
 	}
 	l := strings.ToLower(p)
@@ -73,7 +74,7 @@ func riskLevel(p string) string {
 	}
 }
 
-func scan(root string, minSize int64, olderThan time.Duration, maxFiles int) (ScanResult, error) {
+func scanTree(root string, minSize int64, olderThan time.Duration) (ScanResult, error) {
 	res := ScanResult{}
 	cutoff := time.Now().Add(-olderThan)
 
@@ -129,9 +130,48 @@ func scan(root string, minSize int64, olderThan time.Duration, maxFiles int) (Sc
 		return res, err
 	}
 
-	// sort by size desc
-	sort.Slice(res.Files, func(i, j int) bool { return res.Files[i].Size > res.Files[j].Size })
+	return res, nil
+}
 
+// scan orchestrates a (possibly parallel) scan of root.
+func Scan(root string, minSize int64, olderThan time.Duration, maxFiles int) (ScanResult, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		// fallback: single tree
+		r, e := scanTree(root, minSize, olderThan)
+		if maxFiles > 0 && len(r.Files) > maxFiles {
+			r.Files = r.Files[:maxFiles]
+		}
+		sort.Slice(r.Files, func(i, j int) bool { return r.Files[i].Size > r.Files[j].Size })
+		return r, e
+	}
+
+	res := ScanResult{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	// limit concurrency
+	sem := make(chan struct{}, 16)
+
+	for _, e := range entries {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(name string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			r, _ := scanTree(filepath.Join(root, name), minSize, olderThan)
+			mu.Lock()
+			res.Files = append(res.Files, r.Files...)
+			res.TotalSize += r.TotalSize
+			res.Skipped += r.Skipped
+			res.Errors = append(res.Errors, r.Errors...)
+			mu.Unlock()
+		}(e.Name())
+	}
+	wg.Wait()
+
+	// also handle root-level files already included via entries above (scanTree on file works)
+
+	sort.Slice(res.Files, func(i, j int) bool { return res.Files[i].Size > res.Files[j].Size })
 	if maxFiles > 0 && len(res.Files) > maxFiles {
 		res.Files = res.Files[:maxFiles]
 	}

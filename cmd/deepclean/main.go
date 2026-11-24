@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"deepClean/internal/core"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,7 +14,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.2.0"
+const Version = "0.3.1"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -52,6 +54,8 @@ func main() {
 	jsonOut := flag.String("json", "", "write JSON report to file")
 	skipOrphans := flag.Bool("skip-orphans", false, "skip dnf/flatpak orphan checks")
 	riskFilter := flag.String("risk", "all", "filter by risk level: all|safe|caution|risky")
+	deleteFlag := flag.Bool("delete", false, "interactively delete listed files (with confirmation)")
+	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -71,7 +75,7 @@ func main() {
 
 	fmt.Printf("deepclean: scanning %s (unused > %d days, min size %.2f MB)\n", *root, *days, *minSizeMB)
 
-	res, err := scan(*root, minSize, olderThan, *topN)
+	res, err := core.Scan(*root, minSize, olderThan, *topN)
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "scan error:", err)
 		os.Exit(1)
@@ -97,7 +101,7 @@ func main() {
 		catTotals[f.Category] += f.Size
 	}
 
-	fmt.Printf("\nFound %d files, total %s\n", len(res.Files), FormatSize(res.TotalSize))
+	fmt.Printf("\nFound %d files, total %s\n", len(res.Files), core.FormatSize(res.TotalSize))
 	fmt.Println("By category:")
 	cats := make([]string, 0, len(catTotals))
 	for c := range catTotals {
@@ -105,7 +109,7 @@ func main() {
 	}
 	sort.Strings(cats)
 	for _, c := range cats {
-		fmt.Printf("  %-8s %s\n", c, FormatSize(catTotals[c]))
+		fmt.Printf("  %-8s %s\n", c, core.FormatSize(catTotals[c]))
 	}
 
 	fmt.Printf("\nTop %d by size:\n", len(res.Files))
@@ -116,11 +120,45 @@ func main() {
 			lastUsed = f.ModTime
 		}
 		sysMark := ""
-		if isSystemPath(f.Path) {
+		if core.IsSystemPath(f.Path) {
 			sysMark = " [SYS]"
 		}
 		fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
-			FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+			core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+	}
+
+	if *deleteFlag {
+		fmt.Println("\n--- Interactive delete ---")
+		reader := bufio.NewReader(os.Stdin)
+		deleted, freed := 0, int64(0)
+		for _, f := range res.Files {
+			if f.Risk == "risky" && !*forceFlag {
+				fmt.Printf("SKIP (risky): %s\n", f.Path)
+				continue
+			}
+			if core.IsSystemPath(f.Path) && !*forceFlag {
+				fmt.Printf("SKIP (system): %s\n", f.Path)
+				continue
+			}
+			fmt.Printf("Delete %s (%s, %s)? [y/N]: ", f.Path, core.FormatSize(f.Size), f.Risk)
+			ans, _ := reader.ReadString('\n')
+			ans = strings.TrimSpace(strings.ToLower(ans))
+			if ans != "y" && ans != "yes" {
+				continue
+			}
+			if err := os.Remove(f.Path); err != nil {
+				if os.IsPermission(err) {
+					_, _ = fmt.Fprintf(os.Stderr, "delete error: %v (try running with sudo)\n", err)
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "delete error: %v\n", err)
+				}
+				continue
+			}
+			deleted++
+			freed += f.Size
+			fmt.Println("  deleted")
+		}
+		fmt.Printf("\nDeleted %d files, freed %s\n", deleted, core.FormatSize(freed))
 	}
 
 	if !*skipOrphans {
@@ -144,7 +182,7 @@ func main() {
 			MinSize:     minSize,
 			OlderThan:   fmt.Sprintf("%d days", *days),
 			TotalFiles:  len(res.Files),
-			TotalSize:   FormatSize(res.TotalSize),
+			TotalSize:   core.FormatSize(res.TotalSize),
 			Orphans:     collectOrphansNoExec(*skipOrphans),
 		}
 		for _, f := range res.Files {
@@ -154,13 +192,13 @@ func main() {
 			}
 			out.Files = append(out.Files, FileOut{
 				Path:     f.Path,
-				Size:     FormatSize(f.Size),
+				Size:     core.FormatSize(f.Size),
 				SizeB:    f.Size,
 				LastUsed: lastUsed.Format(time.RFC3339),
 				Modified: f.ModTime.Format(time.RFC3339),
 				Category: f.Category,
 				Risk:     f.Risk,
-				System:   isSystemPath(f.Path),
+				System:   core.IsSystemPath(f.Path),
 			})
 		}
 		b, _ := json.MarshalIndent(out, "", "  ")

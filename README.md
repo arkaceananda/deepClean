@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.2.0). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.3.1). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -27,7 +27,7 @@ A Go command-line tool for discovering old, large, and unused files (and unused 
 
 ```bash
 cd deepClean
-go build -o deepclean .
+go build -o deepclean ./cmd/deepclean
 ```
 
 ## Usage
@@ -47,6 +47,12 @@ go build -o deepclean .
 
 # Only show safe (regenerable) files
 ./deepclean --path / --days 90 --min-size-mb 100 --risk safe
+
+# Interactively delete candidates (never deletes risky/system unless --force)
+./deepclean --path /tmp --days 0 --min-size-mb 1 --risk safe --delete
+
+# Delete system cache (requires sudo)
+sudo ./deepclean --path /var/cache/PackageKit --days 0 --min-size-mb 1 --risk safe --delete
 ```
 
 ## Flags
@@ -62,6 +68,8 @@ go build -o deepclean .
 | `--version` | `false` | Print version and exit |
 | `--open` | `` | Open a path in the default file manager and exit |
 | `--risk` | `all` | Filter by risk level: `all`, `safe`, `caution`, `risky` |
+| `--delete` | `false` | Interactively delete listed files (with confirmation) |
+| `--force` | `false` | Allow deleting `risky`/system files (use with care) |
 
 ## Risk levels
 
@@ -73,7 +81,7 @@ go build -o deepclean .
 
 ## Safety
 
-- The tool is **report-only**: it never deletes files.
+- By default the tool is **report-only**: it never deletes files. Deletion requires `--delete` and per-file confirmation; `risky`/system paths are skipped unless `--force`.
 - System directories are marked `[SYS]` and excluded from any future auto-cleanup.
 - Special virtual filesystems (`/proc`, `/sys`, `/dev`, `/run`) are skipped.
 - A full `/` scan emits permission errors without root; use `sudo` for complete results.
@@ -89,5 +97,6 @@ go build -o deepclean .
 ## Notes
 
 - Full `/` scan takes roughly 15–30 seconds.
+- Deleting or scanning system paths (e.g. `/var/cache`) requires `sudo`.
 - On non-Fedora distributions, filesystem scanning still works; package orphan checks are skipped when `dnf`/`flatpak` are unavailable.
 - Flatpak has no dry-run mode, so only installed refs are listed; run `flatpak uninstall --unused` manually after review.

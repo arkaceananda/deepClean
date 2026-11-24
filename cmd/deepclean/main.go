@@ -16,7 +16,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.5.0"
+const Version = "0.5.1"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -60,12 +60,29 @@ func main() {
 	trashFlag := flag.Bool("trash", false, "move files to Trash instead of permanent delete")
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
 	quietFlag := flag.Bool("quiet", false, "quiet output (for cron/automation)")
-	emailTo := flag.String("email", "", "send a summary report to this email address (requires mail/mailx/sendmail)")
+	emailTo := flag.String("email", "", "override: send a summary report to this email address")
+	setEmail := flag.String("set-email", "", "save default email to config and exit")
 	flag.Parse()
+
+	if *setEmail != "" {
+		if err := saveConfigEmail(*setEmail); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Saved default email: %s\n", *setEmail)
+		return
+	}
 
 	if *versionFlag {
 		fmt.Println("deepclean", Version)
 		return
+	}
+
+	// resolve email: flag override or saved config
+	if *emailTo == "" {
+		if cfg, err := loadConfig(); err == nil && cfg.Email != "" {
+			*emailTo = cfg.Email
+		}
 	}
 	if *openPath != "" {
 		if err := openInFileManager(*openPath); err != nil {
@@ -353,6 +370,50 @@ func sendEmailSummary(to string, files []core.FileInfo, total int64) error {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+type appConfig struct {
+	Email string `json:"email"`
+}
+
+func configPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "deepclean", "config.json"), nil
+}
+
+func loadConfig() (appConfig, error) {
+	var cfg appConfig
+	p, err := configPath()
+	if err != nil {
+		return cfg, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return cfg, err
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func saveConfigEmail(email string) error {
+	p, err := configPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+		return err
+	}
+	cfg := appConfig{Email: email}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, b, 0600)
 }
 
 func collectOrphansNoExec(skip bool) OrphanInfo {

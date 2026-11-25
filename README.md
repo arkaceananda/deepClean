@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.8.4). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.9.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -123,6 +123,23 @@ Setup (one-time, done by you):
 After that, any run with candidates sends a Telegram summary automatically (no flags needed).
 
 Alternative: **ntfy.sh** is an even simpler HTTP push service (no account) if you prefer not using Telegram.
+
+## Telegram bot (local)
+
+Build and run in a real terminal:
+
+```bash
+go build -o deepclean-bot ./cmd/deepclean-bot
+./deepclean-bot
+```
+
+Bot commands:
+- `/scan [flags]` — run scan, store report, reply summary
+- `/latest` — show last scan summary
+- `/top [n]` — top files from last scan
+- `/help`
+
+Bot only responds to the configured chat id.
 
 ## TUI (config editor)
 

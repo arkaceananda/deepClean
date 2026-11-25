@@ -1,6 +1,7 @@
 # Binaries
 /deepclean
 /deepclean-tui
+/deepclean-bot
 *.exe
 
 # Reports

@@ -23,6 +23,16 @@ builds:
     goarch:
       - amd64
       - arm64
+  - id: deepclean-bot
+    main: ./cmd/deepclean-bot
+    binary: deepclean-bot
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: deepclean
@@ -33,6 +43,10 @@ archives:
     builds:
       - deepclean-tui
     name_template: "{{ .ProjectName }}-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: deepclean-bot
+    builds:
+      - deepclean-bot
+    name_template: "{{ .ProjectName }}-bot_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 
 checksum:

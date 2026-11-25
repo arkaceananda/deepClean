@@ -7,8 +7,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type FileInfo struct {
@@ -101,9 +102,9 @@ func scanTree(root string, minSize int64, olderThan time.Duration) (ScanResult, 
 		}
 		// get atime via syscall (Linux)
 		var atime time.Time
-		var st syscall.Stat_t
-		if err := syscall.Stat(path, &st); err == nil {
-			atime = time.Unix(st.Atim.Sec, st.Atim.Nsec)
+		var st unix.Stat_t
+		if err := unix.Stat(path, &st); err == nil {
+			atime = time.Unix(st.Atim.Sec, int64(st.Atim.Nsec))
 		} else {
 			atime = info.ModTime()
 		}

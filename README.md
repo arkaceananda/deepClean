@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.8.0). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.8.1). Report-only by default — no files are deleted automatically.
 
 ## Features
 

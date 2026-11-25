@@ -29,16 +29,11 @@ archives:
     builds:
       - deepclean
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
   - id: deepclean-tui
     builds:
       - deepclean-tui
     name_template: "{{ .ProjectName }}-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
+
 
 checksum:
   name_template: "checksums.txt"

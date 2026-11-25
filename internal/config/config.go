@@ -7,8 +7,12 @@ import (
 )
 
 type Config struct {
-	TelegramToken string `json:"telegram_token"`
-	TelegramChat  string `json:"telegram_chat"`
+	Path          string  `json:"path"`
+	Days          int     `json:"days"`
+	MinSizeMB     float64 `json:"min_size_mb"`
+	Risk          string  `json:"risk"`
+	TelegramToken string  `json:"telegram_token"`
+	TelegramChat  string  `json:"telegram_chat"`
 }
 
 func Path() (string, error) {

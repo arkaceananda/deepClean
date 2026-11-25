@@ -18,7 +18,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.7.1"
+const Version = "0.8.0"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -49,15 +49,34 @@ type OrphanInfo struct {
 }
 
 func main() {
+	// load saved preferences as defaults
+	cfgDefaults, _ := config.Load()
+	defaultPath := "/"
+	if cfgDefaults.Path != "" {
+		defaultPath = cfgDefaults.Path
+	}
+	defaultDays := 90
+	if cfgDefaults.Days > 0 {
+		defaultDays = cfgDefaults.Days
+	}
+	defaultMinSize := 1.0
+	if cfgDefaults.MinSizeMB > 0 {
+		defaultMinSize = cfgDefaults.MinSizeMB
+	}
+	defaultRisk := "all"
+	if cfgDefaults.Risk != "" {
+		defaultRisk = cfgDefaults.Risk
+	}
+
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	openPath := flag.String("open", "", "open a path in the default file manager and exit")
-	root := flag.String("path", "/", "root path to scan")
-	days := flag.Int("days", 90, "consider files unused if last used older than N days")
-	minSizeMB := flag.Float64("min-size-mb", 1, "minimum file size in MB")
+	root := flag.String("path", defaultPath, "root path to scan")
+	days := flag.Int("days", defaultDays, "consider files unused if last used older than N days")
+	minSizeMB := flag.Float64("min-size-mb", defaultMinSize, "minimum file size in MB")
 	topN := flag.Int("top", 200, "max number of files to list (0 = all)")
 	jsonOut := flag.String("json", "", "write JSON report to file")
 	skipOrphans := flag.Bool("skip-orphans", false, "skip dnf/flatpak orphan checks")
-	riskFilter := flag.String("risk", "all", "filter by risk level: all|safe|caution|risky")
+	riskFilter := flag.String("risk", defaultRisk, "filter by risk level: all|safe|caution|risky")
 	deleteFlag := flag.Bool("delete", false, "interactively delete listed files (with confirmation)")
 	trashFlag := flag.Bool("trash", false, "move files to Trash instead of permanent delete")
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
@@ -188,19 +207,20 @@ func main() {
 	}
 
 	if *telegramToken != "" && *telegramChat != "" && len(res.Files) > 0 {
-		msg := fmt.Sprintf("deepclean: %d files, %s total\n", len(res.Files), core.FormatSize(res.TotalSize))
+		var msg strings.Builder
+		msg.WriteString(fmt.Sprintf("deepclean: %d files, %s total\n", len(res.Files), core.FormatSize(res.TotalSize)))
 		for i, f := range res.Files {
 			if i >= 10 {
-				msg += fmt.Sprintf("... (%d more)\n", len(res.Files)-i)
+				msg.WriteString(fmt.Sprintf("... (%d more)\n", len(res.Files)-i))
 				break
 			}
 			last := f.Atime
 			if last.IsZero() {
 				last = f.ModTime
 			}
-			msg += fmt.Sprintf("%s %s %s %s\n", core.FormatSize(f.Size), f.Risk, last.Format("2006-01-02"), f.Path)
+			msg.WriteString(fmt.Sprintf("%s %s %s %s\n", core.FormatSize(f.Size), f.Risk, last.Format("2006-01-02"), f.Path))
 		}
-		if err := notify.SendTelegram(*telegramToken, *telegramChat, msg); err != nil {
+		if err := notify.SendTelegram(*telegramToken, *telegramChat, msg.String()); err != nil {
 			if !*quietFlag {
 				_, _ = fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
 			}

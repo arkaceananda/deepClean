@@ -1,0 +1,55 @@
+version: 2
+
+project_name: deepclean
+
+builds:
+  - id: deepclean
+    main: ./cmd/deepclean
+    binary: deepclean
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+  - id: deepclean-tui
+    main: ./cmd/deepclean-tui
+    binary: deepclean-tui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: deepclean
+    builds:
+      - deepclean
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+  - id: deepclean-tui
+    builds:
+      - deepclean-tui
+    name_template: "{{ .ProjectName }}-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

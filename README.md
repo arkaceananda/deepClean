@@ -2,7 +2,7 @@
 
 A Go command-line tool for discovering old, large, and unused files (and unused software packages) on Linux systems. Designed for Fedora first, with graceful degradation on other distributions.
 
-> Status: early development (v0.7.1). Report-only by default — no files are deleted automatically.
+> Status: early development (v0.8.0). Report-only by default — no files are deleted automatically.
 
 ## Features
 
@@ -123,6 +123,17 @@ Setup (one-time, done by you):
 After that, any run with candidates sends a Telegram summary automatically (no flags needed).
 
 Alternative: **ntfy.sh** is an even simpler HTTP push service (no account) if you prefer not using Telegram.
+
+## TUI (config editor)
+
+Build and run in a real terminal (not IDE run panel):
+
+```bash
+go build -o deepclean-tui ./cmd/deepclean-tui
+./deepclean-tui
+```
+
+Navigasi: Tab/↑↓, Enter simpan, q keluar. Preferensi disimpan ke `~/.config/deepclean/config.json` dan dipakai CLI sebagai default.
 
 ## Automation
 

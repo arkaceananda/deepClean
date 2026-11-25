@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"deepClean/internal/config"
 	"deepClean/internal/core"
+	"deepClean/internal/notify"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,7 +18,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.6.0"
+const Version = "0.7.1"
 
 type Report struct {
 	Version     string     `json:"version"`
@@ -61,11 +63,55 @@ func main() {
 	forceFlag := flag.Bool("force", false, "allow deleting risky/system files (use with care)")
 	quietFlag := flag.Bool("quiet", false, "quiet output (for cron/automation)")
 	exitCodeFlag := flag.Bool("exit-code", false, "exit with status 1 if candidates found (for cron alerts)")
+	telegramToken := flag.String("telegram-token", "", "override Telegram bot token")
+	telegramChat := flag.String("telegram-chat", "", "override Telegram chat id")
+	setTelegramToken := flag.String("set-telegram-token", "", "save Telegram bot token and exit")
+	setTelegramChat := flag.String("set-telegram-chat", "", "save Telegram chat id and exit")
+	testTelegram := flag.Bool("test-telegram", false, "send a test Telegram message using saved config and exit")
 	flag.Parse()
+
+	if *setTelegramToken != "" || *setTelegramChat != "" {
+		if *setTelegramToken == "" || *setTelegramChat == "" {
+			_, _ = fmt.Fprintln(os.Stderr, "both --set-telegram-token and --set-telegram-chat are required")
+			os.Exit(1)
+		}
+		if err := config.SaveTelegram(*setTelegramToken, *setTelegramChat); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Saved Telegram config")
+		return
+	}
+
+	if *testTelegram {
+		cfg, err := config.Load()
+		if err != nil || cfg.TelegramToken == "" || cfg.TelegramChat == "" {
+			_, _ = fmt.Fprintln(os.Stderr, "telegram config not set (use --set-telegram)")
+			os.Exit(1)
+		}
+		if err := notify.SendTelegram(cfg.TelegramToken, cfg.TelegramChat, "deepclean test message"); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Test message sent")
+		return
+	}
 
 	if *versionFlag {
 		fmt.Println("deepclean", Version)
 		return
+	}
+
+	// resolve telegram config
+	if *telegramToken == "" || *telegramChat == "" {
+		if cfg, err := config.Load(); err == nil {
+			if *telegramToken == "" {
+				*telegramToken = cfg.TelegramToken
+			}
+			if *telegramChat == "" {
+				*telegramChat = cfg.TelegramChat
+			}
+		}
 	}
 
 	if *openPath != "" {
@@ -138,6 +184,28 @@ func main() {
 		if !*quietFlag {
 			fmt.Printf("%-12s %-10s %-8s %-20s %s%s\n",
 				core.FormatSize(f.Size), f.Category, f.Risk, lastUsed.Format("2006-01-02"), f.Path, sysMark)
+		}
+	}
+
+	if *telegramToken != "" && *telegramChat != "" && len(res.Files) > 0 {
+		msg := fmt.Sprintf("deepclean: %d files, %s total\n", len(res.Files), core.FormatSize(res.TotalSize))
+		for i, f := range res.Files {
+			if i >= 10 {
+				msg += fmt.Sprintf("... (%d more)\n", len(res.Files)-i)
+				break
+			}
+			last := f.Atime
+			if last.IsZero() {
+				last = f.ModTime
+			}
+			msg += fmt.Sprintf("%s %s %s %s\n", core.FormatSize(f.Size), f.Risk, last.Format("2006-01-02"), f.Path)
+		}
+		if err := notify.SendTelegram(*telegramToken, *telegramChat, msg); err != nil {
+			if !*quietFlag {
+				_, _ = fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
+			}
+		} else if !*quietFlag {
+			fmt.Println("Telegram notification sent")
 		}
 	}
 
@@ -302,16 +370,16 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}
-	return out.Close()
+	return nil
 }
 
 func collectOrphansNoExec(skip bool) OrphanInfo {

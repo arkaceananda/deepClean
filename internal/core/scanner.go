@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 type FileInfo struct {
@@ -101,13 +99,7 @@ func scanTree(root string, minSize int64, olderThan time.Duration) (ScanResult, 
 			return nil
 		}
 		// get atime via syscall (Linux)
-		var atime time.Time
-		var st unix.Stat_t
-		if err := unix.Stat(path, &st); err == nil {
-			atime = time.Unix(st.Atim.Sec, int64(st.Atim.Nsec))
-		} else {
-			atime = info.ModTime()
-		}
+		atime := getFileAtime(path, info)
 		// last used = max(atime, mtime) to be safe under relatime
 		lastUsed := info.ModTime()
 		if atime.After(lastUsed) {

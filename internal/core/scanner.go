@@ -158,12 +158,16 @@ func Scan(root string, minSize int64, olderThan time.Duration, maxFiles int) (Sc
 		go func(name string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			r, _ := scanTree(filepath.Join(root, name), minSize, olderThan)
+			r, err := scanTree(filepath.Join(root, name), minSize, olderThan)
 			mu.Lock()
-			res.Files = append(res.Files, r.Files...)
-			res.TotalSize += r.TotalSize
-			res.Skipped += r.Skipped
-			res.Errors = append(res.Errors, r.Errors...)
+			if err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", name, err))
+			} else {
+				res.Files = append(res.Files, r.Files...)
+				res.TotalSize += r.TotalSize
+				res.Skipped += r.Skipped
+				res.Errors = append(res.Errors, r.Errors...)
+			}
 			mu.Unlock()
 		}(e.Name())
 	}

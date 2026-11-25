@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -99,7 +100,13 @@ func scanTree(root string, minSize int64, olderThan time.Duration) (ScanResult, 
 			return nil
 		}
 		// get atime via syscall (Linux)
-		atime := getFileAtime(path, info)
+		var atime time.Time
+		var st syscall.Stat_t
+		if err := syscall.Stat(path, &st); err == nil {
+			atime = time.Unix(st.Atim.Sec, st.Atim.Nsec)
+		} else {
+			atime = info.ModTime()
+		}
 		// last used = max(atime, mtime) to be safe under relatime
 		lastUsed := info.ModTime()
 		if atime.After(lastUsed) {

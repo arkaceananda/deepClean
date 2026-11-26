@@ -18,7 +18,7 @@ import (
 )
 
 // Version follows Semantic Versioning.
-const Version = "0.9.0"
+const Version = "0.9.1"
 
 type Report struct {
 	Version     string     `json:"version"`

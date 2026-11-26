@@ -40,6 +40,13 @@ func Load() (Config, error) {
 }
 
 func SaveTelegram(token, chat string) error {
+	cfg, _ := Load()
+	cfg.TelegramToken = token
+	cfg.TelegramChat = chat
+	return Save(cfg)
+}
+
+func Save(cfg Config) error {
 	p, err := Path()
 	if err != nil {
 		return err
@@ -47,7 +54,6 @@ func SaveTelegram(token, chat string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return err
 	}
-	cfg := Config{TelegramToken: token, TelegramChat: chat}
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err

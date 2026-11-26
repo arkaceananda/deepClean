@@ -81,7 +81,46 @@ func handleMessage(text string) {
 
 	switch cmd {
 	case "/start", "/help":
-		send("Commands:\n/scan [flags]\n/latest\n/top [n]\n/help")
+		send("Commands:\n/scan [flags]\n/latest\n/top [n]\n/set path|days|min|risk VALUE\n/show\n/help")
+	case "/show":
+		cfg, _ := config.Load()
+		send(fmt.Sprintf("path=%s\ndays=%d\nmin=%g\nrisk=%s", cfg.Path, cfg.Days, cfg.MinSizeMB, cfg.Risk))
+	case "/set":
+		if len(args) < 2 {
+			send("usage: /set path|days|min|risk VALUE")
+			return
+		}
+		cfg, _ := config.Load()
+		key := strings.ToLower(args[0])
+		val := strings.Join(args[1:], " ")
+		switch key {
+		case "path":
+			cfg.Path = val
+		case "days":
+			if v, err := strconv.Atoi(val); err == nil && v > 0 {
+				cfg.Days = v
+			} else {
+				send("invalid days")
+				return
+			}
+		case "min":
+			if v, err := strconv.ParseFloat(val, 64); err == nil && v > 0 {
+				cfg.MinSizeMB = v
+			} else {
+				send("invalid min")
+				return
+			}
+		case "risk":
+			cfg.Risk = val
+		default:
+			send("unknown key")
+			return
+		}
+		if err := config.Save(cfg); err != nil {
+			send("save error: " + err.Error())
+			return
+		}
+		send("saved")
 	case "/latest":
 		send(loadLatestSummary())
 	case "/top":
@@ -109,12 +148,30 @@ func runScan(args []string) {
 	defer func() { <-lastMu }()
 
 	send("Scanning... (may take a while)")
+	cfg, _ := config.Load()
+	defaultPath := "/"
+	if cfg.Path != "" {
+		defaultPath = cfg.Path
+	}
+	defaultDays := 90
+	if cfg.Days > 0 {
+		defaultDays = cfg.Days
+	}
+	defaultMinSize := 1.0
+	if cfg.MinSizeMB > 0 {
+		defaultMinSize = cfg.MinSizeMB
+	}
+	defaultRisk := "all"
+	if cfg.Risk != "" {
+		defaultRisk = cfg.Risk
+	}
+
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	path := fs.String("path", "/", "root")
-	days := fs.Int("days", 90, "days")
-	minSize := fs.Float64("min-size-mb", 1, "min size")
-	risk := fs.String("risk", "all", "risk")
+	path := fs.String("path", defaultPath, "root")
+	days := fs.Int("days", defaultDays, "days")
+	minSize := fs.Float64("min-size-mb", defaultMinSize, "min size")
+	risk := fs.String("risk", defaultRisk, "risk")
 	topN := fs.Int("top", 200, "top")
 	if err := fs.Parse(args); err != nil {
 		send("parse error: " + err.Error())
